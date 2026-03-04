@@ -1,113 +1,17 @@
+#!/usr/bin/env python3
+"""
+LoEp - Local Epigenomic Pattern Analysis Tool
+主程序入口
+"""
+
 import sys
 import argparse
 import os
 from multiprocessing import cpu_count
 
-from ELC.ELC_Pearson import calculate_local_correlation_parallel as elc_pearson
-from ELC.ELC_PearsonExponential import calculate_local_correlation_parallel as elc_pearson_exp
-from ELC.ELC_Chi2 import calculate_local_chisquare_parallel as elc_chi2
-from ELC.ELC_KS import calculate_local_ks_parallel as elc_ks
-from ELC.ELC_MutualInfo import calculate_local_mi_parallel as elc_mi
-
-from ELD.ELD_Binomial import calculate_local_difference_parallel as eld_binomial
-from ELD.ELD_Poisson import calculate_local_difference_parallel as eld_poisson
-from ELD.ELD_NegBinomial import calculate_local_difference_parallel as eld_negbinomial
-from ELD.ELD_ZINB import calculate_local_difference_parallel as eld_zinb
-
-
-def parse_window_sizes(window_size_str):
-    if ',' in window_size_str:
-        return [int(x.strip()) for x in window_size_str.split(',')]
-    else:
-        return [int(window_size_str)]
-
-
-def run_elc(method, input1, input2, output, window_sizes, aggregation, weight_method, processes):
-    print(f"\n{'='*60}")
-    print(f"Computing ELC. Method: {method}")
-    print(f"{'='*60}\n")
-    
-    if method == 'pearson':
-        elc_pearson(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            weight_method=weight_method,
-            n_processes=processes
-        )
-    elif method == 'pearson_exp':
-        elc_pearson_exp(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            weight_method=weight_method,
-            n_processes=processes
-        )
-    elif method == 'chi2':
-        elc_chi2(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            weight_method=weight_method,
-            n_processes=processes
-        )
-    elif method == 'ks':
-        elc_ks(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            weight_method=weight_method,
-            n_processes=processes
-        )
-    elif method == 'mi':
-        elc_mi(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            weight_method=weight_method,
-            n_processes=processes
-        )
-    else:
-        print(f"Error:  '{method}' is not a valid ELC method")
-        sys.exit(1)
-
-
-def run_eld(method, input1, input2, output, window_sizes, aggregation, processes):
-    print(f"\n{'='*60}")
-    print(f"Running ELD analysis - Method: {method}")
-    print(f"{'='*60}\n")
-    
-    if method == 'binomial':
-        eld_binomial(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            n_processes=processes
-        )
-    elif method == 'poisson':
-        eld_poisson(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            n_processes=processes
-        )
-    elif method == 'negbinomial':
-        eld_negbinomial(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            n_processes=processes
-        )
-    elif method == 'zinb':
-        eld_zinb(
-            input1, input2, output,
-            window_sizes=window_sizes,
-            aggregation=aggregation,
-            n_processes=processes
-        )
-    else:
-        print(f"Error:  '{method}' is not a valid ELD method")
-        sys.exit(1)
+from elc import calculate_local_correlation_parallel
+from eld import calculate_local_difference_parallel
+from general import parse_window_sizes
 
 
 def generate_output_path(base_output, method_type, method_name):
@@ -129,6 +33,51 @@ def generate_output_path(base_output, method_type, method_name):
         return os.path.join(dir_name, new_name)
     else:
         return new_name
+
+
+def run_elc(method, input1, input2, output, window_sizes, aggregation, weight_method, processes):
+    """运行ELC分析"""
+    print(f"\n{'='*60}")
+    print(f"Computing ELC. Method: {method}")
+    print(f"{'='*60}\n")
+    
+    if method == 'pearson_exp':
+        # pearson_exp 使用单个窗口大小和半衰期列表
+        window_size = window_sizes[0] if isinstance(window_sizes, list) else window_sizes
+        half_lives = [5]  # 默认半衰期
+        calculate_local_correlation_parallel(
+            input1, input2, output,
+            method='pearson_exp',
+            window_sizes=window_size,
+            aggregation=aggregation,
+            weight_method=weight_method,
+            n_processes=processes,
+            half_lives=half_lives
+        )
+    else:
+        calculate_local_correlation_parallel(
+            input1, input2, output,
+            method=method,
+            window_sizes=window_sizes,
+            aggregation=aggregation,
+            weight_method=weight_method,
+            n_processes=processes
+        )
+
+
+def run_eld(method, input1, input2, output, window_sizes, aggregation, processes):
+    """运行ELD分析"""
+    print(f"\n{'='*60}")
+    print(f"Running ELD analysis - Method: {method}")
+    print(f"{'='*60}\n")
+    
+    calculate_local_difference_parallel(
+        input1, input2, output,
+        method=method,
+        window_sizes=window_sizes,
+        aggregation=aggregation,
+        n_processes=processes
+    )
 
 
 def main():
@@ -174,7 +123,7 @@ Example Usage:
     
     args = parser.parse_args()
     
-    if args.elc_method == 'none' and args.eld_method == 'none':
+    if args.correlation_method == 'none' and args.difference_method == 'none':
         print("Error: Configure at least one method to run (ELC or ELD).", file=sys.stderr)
         sys.exit(1)
     
@@ -182,16 +131,16 @@ Example Usage:
     
     try:
         # 判断是否需要生成多个输出文件
-        both_methods = (args.elc_method != 'none' and args.eld_method != 'none')
+        both_methods = (args.correlation_method != 'none' and args.difference_method != 'none')
         
-        if args.elc_method != 'none':
+        if args.correlation_method != 'none':
             if both_methods:
-                elc_output = generate_output_path(args.output, 'ELC', args.elc_method)
+                elc_output = generate_output_path(args.output, 'ELC', args.correlation_method)
             else:
                 elc_output = args.output
             
             run_elc(
-                args.elc_method,
+                args.correlation_method,
                 args.input1,
                 args.input2,
                 elc_output,
@@ -201,14 +150,14 @@ Example Usage:
                 args.processes
             )
 
-        if args.eld_method != 'none':
+        if args.difference_method != 'none':
             if both_methods:
-                eld_output = generate_output_path(args.output, 'ELD', args.eld_method)
+                eld_output = generate_output_path(args.output, 'ELD', args.difference_method)
             else:
                 eld_output = args.output
             
             run_eld(
-                args.eld_method,
+                args.difference_method,
                 args.input1,
                 args.input2,
                 eld_output,
@@ -220,8 +169,8 @@ Example Usage:
         print(f"\n{'='*60}")
         print("All analysis completed!")
         if both_methods:
-            print(f"ELC result saved as: {generate_output_path(args.output, 'ELC', args.elc_method)}")
-            print(f"ELD result saved as: {generate_output_path(args.output, 'ELD', args.eld_method)}")
+            print(f"ELC result saved as: {generate_output_path(args.output, 'ELC', args.correlation_method)}")
+            print(f"ELD result saved as: {generate_output_path(args.output, 'ELD', args.difference_method)}")
         else:
             print(f"Result saved as: {args.output}")
         print(f"{'='*60}\n")
