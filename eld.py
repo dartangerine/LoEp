@@ -18,14 +18,8 @@ from general import (
 
 def calculate_weight_eld(win_count, bg_count):
     """
-    计算ELD权重（基于泊松分布）
-    
-    参数:
-        win_count: 窗口内的count
-        bg_count: 背景区域的count
-    
-    返回:
-        权重值
+    计算ELD权重 泊松分布
+
     """
     n = win_count + bg_count
     lam = bg_count / 5000
@@ -42,18 +36,6 @@ def calculate_weight_eld(win_count, bg_count):
 # ==================== 差异计算函数 ====================
 
 def calculate_binomial_pvalue(x1, x2, total_count1, total_count2):
-    """
-    使用proportions_ztest计算p值（Binomial方法）
-    
-    参数:
-        x1: 第一个文件窗口内的观测值总和
-        x2: 第二个文件窗口内的观测值总和
-        total_count1: 第一个track的全局总count数
-        total_count2: 第二个track的全局总count数
-    
-    返回:
-        差异值（基于p值的对数变换）
-    """
     if x1 + x2 == 0:
         return 0
     
@@ -78,18 +60,6 @@ def calculate_binomial_pvalue(x1, x2, total_count1, total_count2):
 
 
 def calculate_poisson_pvalue(x1, x2, T1=1, T2=1):
-    """
-    使用二项检验计算p值（Poisson方法）
-    
-    参数:
-        x1: 第一个文件的观测值总和
-        x2: 第二个文件的观测值总和
-        T1: 第一个文件的exposure（默认为1）
-        T2: 第二个文件的exposure（默认为1）
-    
-    返回:
-        差异值
-    """
     n = x1 + x2
     
     if n == 0:
@@ -117,17 +87,6 @@ def calculate_poisson_pvalue(x1, x2, T1=1, T2=1):
 
 
 def calculate_negbinomial_pvalue(window_values1, bg_values1, window_values2, bg_values2):
-    """
-    使用负二项分布和Wald检验计算p值
-    
-    参数:
-        window_values1: 窗口内第一个track的每-bin值
-        bg_values1: 对应box（背景）中每-bin值
-        window_values2, bg_values2: 同上，但用于第二个track
-    
-    返回:
-        差异值
-    """
     try:
         n1 = len(window_values1)
         n2 = len(window_values2)
@@ -182,17 +141,6 @@ def calculate_negbinomial_pvalue(window_values1, bg_values1, window_values2, bg_
 
 
 def calculate_zinb_pvalue(window_values1, bg_values1, window_values2, bg_values2):
-    """
-    使用ZINB（零膨胀负二项）模型和Wald检验计算p值
-    
-    参数:
-        window_values1: 窗口内第一个track的每-bin值
-        bg_values1: 对应box（背景）中每-bin值
-        window_values2, bg_values2: 同上，但用于第二个track
-    
-    返回:
-        差异值
-    """
     try:
         n1 = len(window_values1)
         n2 = len(window_values2)
@@ -498,43 +446,43 @@ def calculate_local_difference_parallel(bedgraph1_path, bedgraph2_path,
     """
     if n_processes is None:
         n_processes = cpu_count()
-    
-    print(f"读取bedgraph文件...")
+
+    print("Reading bedgraph files...")
     bg1 = read_bedgraph(bedgraph1_path)
     bg2 = read_bedgraph(bedgraph2_path)
-    
+
     if len(bg1) != len(bg2):
-        raise ValueError(f"两个bedgraph文件的bin数不一致: {len(bg1)} vs {len(bg2)}")
-    
+        raise ValueError(f"The two bedgraph files have different numbers of bins: {len(bg1)} vs {len(bg2)}")
+
     n_bins = len(bg1)
-    print(f"总共 {n_bins} 个bins")
-    print(f"使用 {n_processes} 个进程进行并行计算")
-    
+    print(f"Total number of bins: {n_bins}")
+    print(f"Using {n_processes} processes for parallel computation")
+
     values1 = bg1['value'].values.astype(np.float64)
     values2 = bg2['value'].values.astype(np.float64)
-    
+
     total_count1 = np.sum(values1)
     total_count2 = np.sum(values2)
-    
-    print(f"Track1 全局总count: {total_count1:.0f}")
-    print(f"Track2 全局总count: {total_count2:.0f}")
-    
-    print("创建共享内存...")
+
+    print(f"Track1 total global count: {total_count1:.0f}")
+    print(f"Track2 total global count: {total_count2:.0f}")
+
+    print("Creating shared memory...")
     shm1, shm2, shared_array1, shared_array2 = create_shared_memory(values1, values2)
-    
-    print(f"窗口大小: {window_sizes}")
-    print(f"背景区域大小: {[ws * 10 for ws in window_sizes]}")
-    print(f"聚合方法: {aggregation}")
-    
+
+    print(f"Window sizes: {window_sizes}")
+    print(f"Background region sizes: {[ws * 10 for ws in window_sizes]}")
+    print(f"Aggregation method: {aggregation}")
+
     chunk_size = max(1, n_bins // n_processes)
     chunks = []
     for i in range(0, n_bins, chunk_size):
         start_idx = i
         end_idx = min(i + chunk_size, n_bins)
         chunks.append((start_idx, end_idx, n_bins, window_sizes,
-                      shm1.name, shm2.name, values1.shape, aggregation,
-                      total_count1, total_count2))
-    
+                    shm1.name, shm2.name, values1.shape, aggregation,
+                    total_count1, total_count2))
+
     if method == 'binomial':
         process_func = process_chunk_binomial
     elif method == 'poisson':
@@ -544,24 +492,24 @@ def calculate_local_difference_parallel(bedgraph1_path, bedgraph2_path,
     elif method == 'zinb':
         process_func = process_chunk_zinb
     else:
-        raise ValueError(f"未知的方法: {method}")
-    
-    print(f"任务分割为 {len(chunks)} 个块")
-    print("开始并行计算（使用权重计算）...")
-    
+        raise ValueError(f"Unknown method: {method}")
+
+    print(f"Task divided into {len(chunks)} chunks")
+    print("Starting parallel computation (with weighted calculation)...")
+
     try:
         with Pool(processes=n_processes) as pool:
             results = pool.map(process_func, chunks)
-        
-        print("合并结果...")
+
+        print("Merging results...")
         weighted_diff_values = np.concatenate(results)
-        
+
     finally:
-        print("清理共享内存...")
+        print("Cleaning up shared memory...")
         cleanup_shared_memory(shm1, shm2)
-    
-    print("计算完成，写入输出文件...")
+
+    print("Computation completed. Writing output file...")
     write_output(bg1, output_path, weighted_diff_values, 'weighted_diff_value')
-    
-    print(f"结果已保存到: {output_path}")
-    print_statistics(weighted_diff_values, "加权差异值")
+
+    print(f"Results saved to: {output_path}")
+    print_statistics(weighted_diff_values, "Weighted difference values")
