@@ -88,7 +88,7 @@ def main():
         epilog="""
 Example Usage:
 
-   python main.py -i1 file1.bg -i2 file2.bg -o output.bg -cm pearson -dm binomial -w 100 -a mean
+   python main.py -i1 file1.bg -i2 file2.bg -o output.bg 
         """
     )
     
@@ -97,25 +97,30 @@ Example Usage:
     parser.add_argument('-i2', '--input2', required=True, help='Directory path for the second bedgraph file')
     parser.add_argument('-o', '--output', required=True, help='Output file path')
     
-    # 方法选择
-    parser.add_argument('-cm', '--correlation_method', required=True,
+    # 可选参数
+    parser.add_argument('-cm', '--correlation_method', default='pearson',
                        choices=['pearson', 'pearson_exp', 'chi2', 'ks', 'mi', 'none'],
                        help='Correlation computing method for ELC (set to none to skip ELC)')
-    parser.add_argument('-dm', '--difference_method', required=True,
+    parser.add_argument('-dm', '--difference_method', default='binomial',
                        choices=['binomial', 'poisson', 'negbinomial', 'zinb', 'none'],
                        help='Difference computing method for ELD (set to none to skip ELD)')
     
-    # 可选参数
-    parser.add_argument('-w', '--window_sizes', default='100',
-                       help='Window size (number of bins on each side), can be a single number or a comma-separated list, e.g., "100" or "50,100,200" (default: 100)')
-    parser.add_argument('-a', '--aggregation', default='mean',
-                       choices=['mean', 'max', 'min', 'median'],
-                       help='Multi-window aggregation method (default: mean)')
-    parser.add_argument('-wm', '--weight_method', default='arithmetic',
+    parser.add_argument('--correlation_weight', default='minimum',
                        choices=['arithmetic', 'geometric', 'harmonic', 'quadratic', 'minimum', 'maximum'],
-                       help='Weight computing method for ELC (default: arithmetic)')
+                       help='Weight computing method for ELC (default: minimum)')
+
+    parser.add_argument('--difference_weight', default='logp',
+                         choices=['none', 'p', 'logp'],
+                         help='Weight computing method for ELD (default: none)')
+    
+    parser.add_argument('-w', '--window_sizes', default='3,5,7,10',
+                       help='Window size (number of bins on each side), can be a single number or a comma-separated list, e.g., "10" or "5,10,20" (default: 3,5,7,10)')
+    parser.add_argument('-a', '--aggregation', default='min',
+                       choices=['mean', 'max', 'min', 'median'],
+                       help='Multi-window aggregation method (default: min)')
     parser.add_argument('-p', '--processes', type=int, default=None,
                        help=f'Number of parallel processes (default: {cpu_count()})')
+
     
     if len(sys.argv) == 1:
         parser.print_help()

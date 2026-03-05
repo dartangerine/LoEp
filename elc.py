@@ -1,7 +1,3 @@
-"""
-ELC (Epigenomic Local Correlation) 模块
-整合所有相关性计算方法
-"""
 
 import numpy as np
 from scipy.stats import chi2_contingency, ks_2samp
@@ -329,53 +325,61 @@ def calculate_local_correlation_parallel(bedgraph1_path, bedgraph2_path,
                                         n_processes=None,
                                         half_lives=None):
     """
-    使用多进程和共享内存计算两个bedgraph文件的局部相关性
-    
-    参数:
-        bedgraph1_path: 第一个bedgraph文件路径
-        bedgraph2_path: 第二个bedgraph文件路径
-        output_path: 输出bedgraph文件路径
-        method: 计算方法 ('pearson', 'pearson_exp', 'chi2', 'ks', 'mi')
-        window_sizes: 窗口大小列表（单侧bin数，默认[100]）
-        aggregation: 聚合方法 ('mean', 'max', 'min', 'median')
-        weight_method: 权重计算方法
-        n_processes: 进程数（默认为CPU核心数）
-        half_lives: 半衰期列表（仅用于pearson_exp方法）
+    Calculate local correlation between two bedgraph files using 
+    multiprocessing and shared memory.
+
+    Parameters:
+        bedgraph1_path: Path to first bedgraph file
+        bedgraph2_path: Path to second bedgraph file
+        output_path: Output bedgraph file path
+        method: Calculation method 
+                ('pearson', 'pearson_exp', 'chi2', 'ks', 'mi')
+        window_sizes: List of window sizes (number of bins on one side)
+        aggregation: Aggregation method 
+                    ('mean', 'max', 'min', 'median')
+        weight_method: Weight calculation method
+        n_processes: Number of processes (default: CPU core count)
+        half_lives: Half-life list (only used for pearson_exp method)
     """
+
     if n_processes is None:
         n_processes = cpu_count()
     
-    print(f"读取bedgraph文件...")
+    print("Reading bedgraph files...")
     bg1 = read_bedgraph(bedgraph1_path)
     bg2 = read_bedgraph(bedgraph2_path)
     
     if len(bg1) != len(bg2):
-        raise ValueError(f"两个bedgraph文件的bin数不一致: {len(bg1)} vs {len(bg2)}")
+        raise ValueError(
+            f"The two bedgraph files have different numbers of bins: "
+            f"{len(bg1)} vs {len(bg2)}"
+        )
     
     n_bins = len(bg1)
-    print(f"总共 {n_bins} 个bins")
-    print(f"使用 {n_processes} 个进程进行并行计算")
+    print(f"Total number of bins: {n_bins}")
+    print(f"Using {n_processes} processes for parallel computation")
     
     values1 = bg1['value'].values.astype(np.float64)
     values2 = bg2['value'].values.astype(np.float64)
     
-    print("创建共享内存...")
+    print("Creating shared memory...")
     shm1, shm2, shared_array1, shared_array2 = create_shared_memory(values1, values2)
     
-    # 根据方法选择处理函数和参数
+    # Method selection
     if method == 'pearson_exp':
         if half_lives is None:
             half_lives = [5]
+
         window_size = window_sizes[0] if isinstance(window_sizes, list) else window_sizes
         
         weights_dict = {}
         for half_life in half_lives:
             weights_dict[half_life] = exponential_decay_weights(window_size, half_life)
         
-        print(f"窗口大小: {2*window_size + 1} bins (中心 ± {window_size} bins)")
-        print(f"半衰期: {half_lives}")
-        print(f"聚合方法: {aggregation}")
-        print(f"权重计算方法: {weight_method}")
+        print(f"Window size: {2*window_size + 1} bins (center ± {window_size} bins)")
+        print(f"Half-lives: {half_lives}")
+        print(f"Aggregation method: {aggregation}")
+        print(f"Weight calculation method: {weight_method}")
         
         chunk_size = max(1, n_bins // n_processes)
         chunks = []
@@ -383,15 +387,17 @@ def calculate_local_correlation_parallel(bedgraph1_path, bedgraph2_path,
             start_idx = i
             end_idx = min(i + chunk_size, n_bins)
             chunks.append((start_idx, end_idx, n_bins, window_size, half_lives,
-                          shm1.name, shm2.name, values1.shape, weights_dict, aggregation, weight_method))
+                          shm1.name, shm2.name, values1.shape,
+                          weights_dict, aggregation, weight_method))
         
         process_func = process_chunk_pearson_exp
+
     else:
         max_window_size = max(window_sizes)
         
-        print(f"窗口大小: {window_sizes}")
-        print(f"聚合方法: {aggregation}")
-        print(f"权重计算方法: {weight_method}")
+        print(f"Window sizes: {window_sizes}")
+        print(f"Aggregation method: {aggregation}")
+        print(f"Weight calculation method: {weight_method}")
         
         chunk_size = max(1, n_bins // n_processes)
         chunks = []
@@ -399,7 +405,8 @@ def calculate_local_correlation_parallel(bedgraph1_path, bedgraph2_path,
             start_idx = i
             end_idx = min(i + chunk_size, n_bins)
             chunks.append((start_idx, end_idx, n_bins, max_window_size, window_sizes,
-                          shm1.name, shm2.name, values1.shape, aggregation, weight_method))
+                          shm1.name, shm2.name, values1.shape,
+                          aggregation, weight_method))
         
         if method == 'pearson':
             process_func = process_chunk_pearson
@@ -410,10 +417,10 @@ def calculate_local_correlation_parallel(bedgraph1_path, bedgraph2_path,
         elif method == 'mi':
             process_func = process_chunk_mi
         else:
-            raise ValueError(f"未知的方法: {method}")
+            raise ValueError(f"Unknown method: {method}")
     
-    print(f"任务分割为 {len(chunks)} 个块")
-    print("开始并行计算...")
+    print(f"Task divided into {len(chunks)} chunks")
+    print("Starting parallel computation...")
     
     try:
         with Pool(processes=n_processes) as pool:
@@ -421,22 +428,22 @@ def calculate_local_correlation_parallel(bedgraph1_path, bedgraph2_path,
                 results = list(tqdm(
                     pool.imap(process_func, chunks),
                     total=len(chunks),
-                    desc="计算进度",
-                    unit="块",
+                    desc="Processing",
+                    unit="chunk",
                     ncols=80
                 ))
             else:
                 results = pool.map(process_func, chunks)
         
-        print("合并结果...")
+        print("Merging results...")
         weighted_correlation = np.concatenate(results)
         
     finally:
-        print("清理共享内存...")
+        print("Cleaning up shared memory...")
         cleanup_shared_memory(shm1, shm2)
     
-    print("计算完成，写入输出文件...")
+    print("Computation completed. Writing output file...")
     write_output(bg1, output_path, weighted_correlation, 'weighted_correlation')
     
-    print(f"结果已保存到: {output_path}")
-    print_statistics(weighted_correlation, "加权相关性")
+    print(f"Results saved to: {output_path}")
+    print_statistics(weighted_correlation, "Weighted correlation")

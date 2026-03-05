@@ -16,11 +16,14 @@ from general import (
 
 # ==================== 权重计算函数 ====================
 
-def calculate_weight_eld(win_count, bg_count):
+def calculate_weight_eld(win_count, bg_count, difference_weight):
     """
     计算ELD权重 泊松分布
 
     """
+
+    if difference_weight == 'none':
+        return 1.0
     n = win_count + bg_count
     lam = bg_count / 5000
     
@@ -29,7 +32,13 @@ def calculate_weight_eld(win_count, bg_count):
     else:
         p_value = poisson.cdf(win_count, mu=lam)
     
-    weight = 1.0 - p_value
+    if difference_weight == 'p':
+        weight = 1.0 - p_value
+    elif difference_weight == 'logp':
+        weight = -np.log10(p_value) if p_value > 0 else 300
+    else:
+        raise ValueError(f"Unknown difference_weight: {difference_weight}")
+
     return max(0.0, min(1.0, weight))
 
 
@@ -203,7 +212,7 @@ def process_chunk_binomial(args):
     """处理Binomial方法的数据块"""
     (start_idx, end_idx, n_bins, window_sizes,
      shm_name1, shm_name2, shm_shape, aggregation,
-     total_count1, total_count2) = args
+     total_count1, total_count2, difference_weight) = args
     
     shm1 = shared_memory.SharedMemory(name=shm_name1)
     shm2 = shared_memory.SharedMemory(name=shm_name2)
@@ -230,8 +239,8 @@ def process_chunk_binomial(args):
         center_value1 = values1[i]
         center_value2 = values2[i]
         
-        weight1 = calculate_weight_eld(center_value1, bg_count1)
-        weight2 = calculate_weight_eld(center_value2, bg_count2)
+        weight1 = calculate_weight_eld(center_value1, bg_count1, difference_weight)
+        weight2 = calculate_weight_eld(center_value2, bg_count2, difference_weight)
         final_weight = max(weight1, weight2)
         
         pvalues_for_windows = []
