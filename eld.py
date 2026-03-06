@@ -1,8 +1,3 @@
-"""
-ELD (Epigenomic Local Difference) 模块
-整合所有差异显著性计算方法
-"""
-
 import numpy as np
 from scipy.stats import binomtest, poisson, norm
 from statsmodels.stats.proportion import proportions_ztest
@@ -14,19 +9,16 @@ from general import (
 )
 
 
-# ==================== 权重计算函数 ====================
-
 def calculate_weight_eld(win_count, bg_count, difference_weight):
     """
     计算ELD权重 泊松分布
-
     """
 
     if difference_weight == 'none':
         return 1.0
     n = win_count + bg_count
     lam = bg_count / 5000
-    
+                                                                                                                                                                                                                                                                                                                                                                                           
     if n > lam:
         p_value = poisson.sf(win_count - 1, mu=lam)
     else:
@@ -41,8 +33,6 @@ def calculate_weight_eld(win_count, bg_count, difference_weight):
 
     return max(0.0, min(1.0, weight))
 
-
-# ==================== 差异计算函数 ====================
 
 def calculate_binomial_pvalue(x1, x2, total_count1, total_count2):
     if x1 + x2 == 0:
@@ -270,7 +260,7 @@ def process_chunk_poisson(args):
     """处理Poisson方法的数据块"""
     (start_idx, end_idx, n_bins, window_sizes,
      shm_name1, shm_name2, shm_shape, aggregation,
-     total_count1, total_count2) = args
+     total_count1, total_count2, difference_weight) = args
     
     shm1 = shared_memory.SharedMemory(name=shm_name1)
     shm2 = shared_memory.SharedMemory(name=shm_name2)
@@ -297,8 +287,8 @@ def process_chunk_poisson(args):
         center_value1 = values1[i]
         center_value2 = values2[i]
         
-        weight1 = calculate_weight_eld(center_value1, bg_count1)
-        weight2 = calculate_weight_eld(center_value2, bg_count2)
+        weight1 = calculate_weight_eld(center_value1, bg_count1, difference_weight)
+        weight2 = calculate_weight_eld(center_value2, bg_count2, difference_weight)
         final_weight = max(weight1, weight2)
         
         pvalues_for_windows = []
@@ -328,7 +318,7 @@ def process_chunk_negbinomial(args):
     """处理NegBinomial方法的数据块"""
     (start_idx, end_idx, n_bins, window_sizes,
      shm_name1, shm_name2, shm_shape, aggregation,
-     total_count1, total_count2) = args
+     total_count1, total_count2, difference_weight) = args
     
     shm1 = shared_memory.SharedMemory(name=shm_name1)
     shm2 = shared_memory.SharedMemory(name=shm_name2)
@@ -355,8 +345,8 @@ def process_chunk_negbinomial(args):
         center_value1 = values1[i]
         center_value2 = values2[i]
         
-        weight1 = calculate_weight_eld(center_value1, bg_count1)
-        weight2 = calculate_weight_eld(center_value2, bg_count2)
+        weight1 = calculate_weight_eld(center_value1, bg_count1, difference_weight)
+        weight2 = calculate_weight_eld(center_value2, bg_count2, difference_weight)
         final_weight = max(weight1, weight2)
         
         pvalues_for_windows = []
@@ -383,7 +373,7 @@ def process_chunk_zinb(args):
     """处理ZINB方法的数据块"""
     (start_idx, end_idx, n_bins, window_sizes,
      shm_name1, shm_name2, shm_shape, aggregation,
-     total_count1, total_count2) = args
+     total_count1, total_count2, difference_weight) = args
     
     shm1 = shared_memory.SharedMemory(name=shm_name1)
     shm2 = shared_memory.SharedMemory(name=shm_name2)
@@ -410,8 +400,8 @@ def process_chunk_zinb(args):
         center_value1 = values1[i]
         center_value2 = values2[i]
         
-        weight1 = calculate_weight_eld(center_value1, bg_count1)
-        weight2 = calculate_weight_eld(center_value2, bg_count2)
+        weight1 = calculate_weight_eld(center_value1, bg_count1, difference_weight)
+        weight2 = calculate_weight_eld(center_value2, bg_count2, difference_weight)
         final_weight = max(weight1, weight2)
         
         pvalues_for_windows = []
@@ -434,24 +424,15 @@ def process_chunk_zinb(args):
     return chunk_results
 
 
-# ==================== 主计算函数 ====================
-
-def calculate_local_difference_parallel(bedgraph1_path, bedgraph2_path, 
+def calculate_local_difference_parallel(bedgraph1_path, bedgraph2_path,
                                        output_path, method='binomial',
-                                       window_sizes=[100],
+                                       window_sizes=[3,5,7,10],
                                        aggregation='mean',
-                                       n_processes=None):
+                                       difference_weight='logp',
+                                       n_processes=None,
+                                       ):
     """
-    使用多进程和共享内存计算两个bedgraph文件的局部差异显著性
-    
-    参数:
-        bedgraph1_path: 第一个bedgraph文件路径
-        bedgraph2_path: 第二个bedgraph文件路径
-        output_path: 输出bedgraph文件路径
-        method: 计算方法 ('binomial', 'poisson', 'negbinomial', 'zinb')
-        window_sizes: 窗口大小列表（单侧bin数，默认[100]）
-        aggregation: 聚合方法 ('mean', 'max', 'min', 'median')
-        n_processes: 进程数（默认为CPU核心数）
+    ELD的主计算函数
     """
     if n_processes is None:
         n_processes = cpu_count()
@@ -490,7 +471,7 @@ def calculate_local_difference_parallel(bedgraph1_path, bedgraph2_path,
         end_idx = min(i + chunk_size, n_bins)
         chunks.append((start_idx, end_idx, n_bins, window_sizes,
                     shm1.name, shm2.name, values1.shape, aggregation,
-                    total_count1, total_count2))
+                    total_count1, total_count2, difference_weight))
 
     if method == 'binomial':
         process_func = process_chunk_binomial

@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-LoEp - Local Epigenomic Pattern Analysis Tool
-主程序入口
-"""
-
 import sys
 import argparse
 import os
@@ -42,9 +36,8 @@ def run_elc(method, input1, input2, output, window_sizes, aggregation, weight_me
     print(f"{'='*60}\n")
     
     if method == 'pearson_exp':
-        # pearson_exp 使用单个窗口大小和半衰期列表
-        window_size = window_sizes[0] if isinstance(window_sizes, list) else window_sizes
-        half_lives = [5]  # 默认半衰期
+        half_lives = window_sizes 
+        window_size = 100
         calculate_local_correlation_parallel(
             input1, input2, output,
             method='pearson_exp',
@@ -65,7 +58,7 @@ def run_elc(method, input1, input2, output, window_sizes, aggregation, weight_me
         )
 
 
-def run_eld(method, input1, input2, output, window_sizes, aggregation, processes):
+def run_eld(method, input1, input2, output, window_sizes, aggregation, difference_weight, processes):
     """运行ELD分析"""
     print(f"\n{'='*60}")
     print(f"Running ELD analysis - Method: {method}")
@@ -76,6 +69,7 @@ def run_eld(method, input1, input2, output, window_sizes, aggregation, processes
         method=method,
         window_sizes=window_sizes,
         aggregation=aggregation,
+        difference_weight=difference_weight,
         n_processes=processes
     )
 
@@ -87,41 +81,52 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example Usage:
-
    python main.py -i1 file1.bg -i2 file2.bg -o output.bg 
-        """
+        """,
+        add_help=False  # 禁用默认的 -h 选项，稍后手动添加
     )
     
-    # 必需参数
-    parser.add_argument('-i1', '--input1', required=True, help='Directory path for the first bedgraph file')
-    parser.add_argument('-i2', '--input2', required=True, help='Directory path for the second bedgraph file')
-    parser.add_argument('-o', '--output', required=True, help='Output file path')
+    # 创建参数组
+    required_group = parser.add_argument_group('Necessary Arguments')
+    optional_group = parser.add_argument_group('Options')
     
-    # 可选参数
-    parser.add_argument('-cm', '--correlation_method', default='pearson',
-                       choices=['pearson', 'pearson_exp', 'chi2', 'ks', 'mi', 'none'],
-                       help='Correlation computing method for ELC (set to none to skip ELC)')
-    parser.add_argument('-dm', '--difference_method', default='binomial',
-                       choices=['binomial', 'poisson', 'negbinomial', 'zinb', 'none'],
-                       help='Difference computing method for ELD (set to none to skip ELD)')
+    # 手动添加 help 选项到 optional_group
+    optional_group.add_argument('-h', '--help', action='help', 
+                               help='show this help message and exit')
     
-    parser.add_argument('--correlation_weight', default='minimum',
-                       choices=['arithmetic', 'geometric', 'harmonic', 'quadratic', 'minimum', 'maximum'],
-                       help='Weight computing method for ELC (default: minimum)')
+    # 必需参数组
+    required_group.add_argument('-i1', '--input1', required=True, 
+                               help='Directory path for the first bedgraph file')
+    required_group.add_argument('-i2', '--input2', required=True, 
+                               help='Directory path for the second bedgraph file')
+    required_group.add_argument('-o', '--output', required=True, 
+                               help='Output file path')
+    
+    # 可选参数组
+    optional_group.add_argument('-cm', '--correlation_method', default='pearson',
+                               choices=['pearson', 'pearson_exp', 'chi2', 'ks', 'mi', 'none'],
+                               help='Correlation computing method for ELC (set to none to skip ELC)')
+    optional_group.add_argument('-dm', '--difference_method', default='binomial',
+                               choices=['binomial', 'poisson', 'negbinomial', 'zinb', 'none'],
+                               help='Difference computing method for ELD (set to none to skip ELD)')
+    
+    optional_group.add_argument('--correlation_weight', default='minimum',
+                               choices=['arithmetic', 'geometric', 'harmonic', 'quadratic', 'minimum', 'maximum'],
+                               help='Weight computing method for ELC (default: minimum)')
 
-    parser.add_argument('--difference_weight', default='logp',
-                         choices=['none', 'p', 'logp'],
-                         help='Weight computing method for ELD (default: none)')
+    optional_group.add_argument('--difference_weight', default='logp',
+                               choices=['none', 'p', 'logp'],
+                               help='Weight computing method for ELD (default: logp)')
     
-    parser.add_argument('-w', '--window_sizes', default='3,5,7,10',
-                       help='Window size (number of bins on each side), can be a single number or a comma-separated list, e.g., "10" or "5,10,20" (default: 3,5,7,10)')
-    parser.add_argument('-a', '--aggregation', default='min',
-                       choices=['mean', 'max', 'min', 'median'],
-                       help='Multi-window aggregation method (default: min)')
-    parser.add_argument('-p', '--processes', type=int, default=None,
-                       help=f'Number of parallel processes (default: {cpu_count()})')
+    optional_group.add_argument('-w', '--window_sizes', default='3,5,7,10',
+                               help='Window size (number of bins on each side), can be a single number or a comma-separated list, e.g., "10" or "5,10,20". When calculating ELC with pearson_exp method, this parameter will be regarded as halflife. (default: 3,5,7,10)')
+    optional_group.add_argument('-a', '--aggregation', default='min',
+                               choices=['mean', 'max', 'min', 'median'],
+                               help='Multi-window aggregation method (default: min)')
+    optional_group.add_argument('-p', '--processes', type=int, default=None,
+                               help=f'Number of parallel processes. Set to None to use all available CPUs: {cpu_count()}. (default: None({cpu_count()}))')
 
-    
+      
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
@@ -151,7 +156,7 @@ Example Usage:
                 elc_output,
                 window_sizes,
                 args.aggregation,
-                args.weight_method,
+                args.correlation_weight,
                 args.processes
             )
 
@@ -168,6 +173,7 @@ Example Usage:
                 eld_output,
                 window_sizes,
                 args.aggregation,
+                args.difference_weight,
                 args.processes
             )
         

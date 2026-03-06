@@ -45,38 +45,78 @@ def weighted_pearson_correlation(x, y, weights):
     return abs(correlation)
 
 
+# def chi_square_test(x, y):
+#     """卡方-老的"""
+#     x = np.abs(x)
+#     y = np.abs(y)
+    
+#     if np.sum(x) == 0 or np.sum(y) == 0:
+#         return 1.0
+#     if np.std(x) == 0 or np.std(y) == 0:
+#         return 1.0
+    
+#     try:
+#         x_median = np.median(x)
+#         y_median = np.median(y)
+        
+#         n11 = np.sum((x >= x_median) & (y >= y_median))
+#         n12 = np.sum((x >= x_median) & (y < y_median))
+#         n21 = np.sum((x < x_median) & (y >= y_median))
+#         n22 = np.sum((x < x_median) & (y < y_median))
+        
+#         contingency_table = np.array([[n11, n12], [n21, n22]])
+        
+#         if np.any(contingency_table.sum(axis=0) == 0) or np.any(contingency_table.sum(axis=1) == 0):
+#             return 1.0
+        
+#         chi2, p_value, dof, expected = chi2_contingency(contingency_table)
+#         return chi2
+#     except:
+#         return 1.0
+
 def chi_square_test(x, y):
-    """计算卡方检验的统计量"""
+    """GPT说的：2x2 卡方统计量（与 chi2_contingency 结果一致）"""
     x = np.abs(x)
     y = np.abs(y)
-    
-    if np.sum(x) == 0 or np.sum(y) == 0:
+
+    # 快速零判断
+    if not x.any() or not y.any():
         return 1.0
-    if np.std(x) == 0 or np.std(y) == 0:
+
+    # 方差为 0 判断
+    if x.std() == 0 or y.std() == 0:
         return 1.0
-    
+
     try:
         x_median = np.median(x)
         y_median = np.median(y)
-        
-        n11 = np.sum((x >= x_median) & (y >= y_median))
-        n12 = np.sum((x >= x_median) & (y < y_median))
-        n21 = np.sum((x < x_median) & (y >= y_median))
-        n22 = np.sum((x < x_median) & (y < y_median))
-        
-        contingency_table = np.array([[n11, n12], [n21, n22]])
-        
-        if np.any(contingency_table.sum(axis=0) == 0) or np.any(contingency_table.sum(axis=1) == 0):
+
+        x_bin = x >= x_median
+        y_bin = y >= y_median
+
+        a = np.sum(x_bin & y_bin)
+        b = np.sum(x_bin & ~y_bin)
+        c = np.sum(~x_bin & y_bin)
+        d = np.sum(~x_bin & ~y_bin)
+
+        # 边际和为 0 检查
+        if (a+b)==0 or (c+d)==0 or (a+c)==0 or (b+d)==0:
             return 1.0
-        
-        chi2, p_value, dof, expected = chi2_contingency(contingency_table)
+
+        n = a + b + c + d
+
+        # 2x2 卡方公式
+        chi2 = n * (a*d - b*c)**2 / (
+            (a+b)*(c+d)*(a+c)*(b+d)
+        )
+
         return chi2
+
     except:
         return 1.0
 
 
 def simple_ks_statistic(x, y):
-    """计算KS检验统计量，返回(1 - D)"""
     try:
         ks_statistic, p_value = ks_2samp(x, y)
         return 1 - ks_statistic
@@ -84,42 +124,47 @@ def simple_ks_statistic(x, y):
         return 0
 
 
-def calculate_mutual_information(x, y):
-    """计算互信息（优化版）"""
-    if len(x) == 0 or len(y) == 0 or len(x) != len(y):
-        return 0
-    
-    if np.ptp(x) == 0 or np.ptp(y) == 0:
-        return 0
-    
-    try:
-        n_samples = len(x)
-        n_bins = max(2, min(int(np.sqrt(n_samples)), 50))
-        
-        x_edges = np.linspace(np.min(x), np.max(x), n_bins + 1)
-        y_edges = np.linspace(np.min(y), np.max(y), n_bins + 1)
-        
-        x_discrete = np.digitize(x, x_edges) - 1
-        y_discrete = np.digitize(y, y_edges) - 1
-        
-        x_discrete = np.clip(x_discrete, 0, n_bins - 1)
-        y_discrete = np.clip(y_discrete, 0, n_bins - 1)
-        
-        mi = mutual_info_score(x_discrete, y_discrete)
-        return mi
-    except:
-        return 0
+def calculate_mutual_information(x, y, n_bins=15):
+    """纯 numpy"""
+    if len(x) == 0 or len(x) != len(y):
+        return 0.0
 
+    # 避免无方差情况
+    x_min = x.min()
+    x_max = x.max()
+    y_min = y.min()
+    y_max = y.max()
+
+    if x_min == x_max or y_min == y_max:
+        return 0.0
+
+    # 直接构建二维直方图
+    c_xy, _, _ = np.histogram2d(x, y, bins=n_bins)
+
+    total = c_xy.sum()
+    if total == 0:
+        return 0.0
+
+    p_xy = c_xy / total
+    p_x = p_xy.sum(axis=1)
+    p_y = p_xy.sum(axis=0)
+
+    # 只计算非零位置
+    nz = p_xy > 0
+
+    return np.sum(
+        p_xy[nz] *
+        np.log(p_xy[nz] /
+               (p_x[:, None] * p_y[None, :])[nz])
+    )
 
 def exponential_decay_weights(window_size, half_life):
-    """计算指数衰减权重"""
+    """Exponential"""
     decay_constant = np.log(2) / half_life
     distances = np.arange(-window_size, window_size + 1)
     weights = np.exp(-decay_constant * np.abs(distances))
     return weights
 
-
-# ==================== 多进程处理函数 ====================
 
 def process_chunk_pearson(args):
     """处理Pearson相关性计算的数据块"""
@@ -367,10 +412,10 @@ def calculate_local_correlation_parallel(bedgraph1_path, bedgraph2_path,
     
     # Method selection
     if method == 'pearson_exp':
-        if half_lives is None:
-            half_lives = [5]
+        
+        half_lives = window_sizes
 
-        window_size = window_sizes[0] if isinstance(window_sizes, list) else window_sizes
+        window_size = 100
         
         weights_dict = {}
         for half_life in half_lives:
